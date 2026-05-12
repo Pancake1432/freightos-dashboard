@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<link rel="icon" type="image/png" href="maps.png">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DAT ZIP Zone + Time Zone Map</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+:root {
+  --bg:      #1e2636;
+  --surface: #252f42;
+  --border:  #2e3d55;
+  --muted:   #3e5068;
+  --text:    #d0dcea;
+  --dim:     #7090aa;
+  --accent:  #00d4ff;
+  --accent2: #ff6b35;
+  --select:  #1a4a6e;
+  --select-stroke: #00aaff;
+
+  /* Time zone colors — matching reference image */
+  --c-pt:  #3ec8d2;   /* Pacific  — cyan        */
+  --c-mt:  #e8756a;   /* Mountain — salmon/pink  */
+  --c-az:  #e8756a;   /* Arizona  — same + hatch */
+  --c-ct:  #e8c84a;   /* Central  — yellow/gold  */
+  --c-et:  #3dbfa5;   /* Eastern  — teal/green   */
+
+  /* Map fill (slightly darker for polygon) */
+  --f-pt:  #2aabb8;
+  --f-mt:  #d45f56;
+  --f-az:  #d45f56;
+  --f-ct:  #d4ac2e;
+  --f-et:  #29a690;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'IBM Plex Sans', sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ═══ HEADER ═══════════════════════════════════════ */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 26px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.logo {
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 700; font-size: 13px;
+  letter-spacing: 0.12em; color: var(--accent); text-transform: uppercase;
+}
+.logo span { color: var(--dim); font-weight: 400; margin-left: 8px; }
+.tab-bar { display: flex; gap: 4px; }
+.tab-btn {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase;
+  padding: 7px 18px; border-radius: 3px; border: 1px solid var(--border);
+  background: transparent; color: var(--dim); cursor: pointer; transition: all .15s;
+}
+.tab-btn:hover { border-color: var(--dim); color: var(--text); }
+.tab-btn.active { background: var(--select); border-color: var(--accent); color: var(--accent); }
+
+/* ═══ MAIN ══════════════════════════════════════════ */
+main {
+  flex: 1; display: flex; flex-direction: row;
+  padding: 16px 18px; gap: 14px;
+  width: 100%; max-width: 1300px; margin: 0 auto;
+  align-items: flex-start;
+}
+.view { display: none; }
+.view.active { display: contents; }
+
+/* ═══ SIDEBAR ═══════════════════════════════════════ */
+.sidebar {
+  width: 200px; flex-shrink: 0;
+  display: flex; flex-direction: column; gap: 5px;
+  position: sticky; top: 16px;
+  max-height: calc(100vh - 80px); overflow-y: auto;
+}
+.sidebar::-webkit-scrollbar { width: 3px; }
+.sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.sidebar-title {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700;
+  letter-spacing: 0.16em; color: var(--text); text-transform: uppercase;
+  padding: 0 0 9px 2px; border-bottom: 2px solid var(--accent);
+  margin-bottom: 5px; flex-shrink: 0;
+}
+
+/* ZIP zone rows */
+.zone-row {
+  display: flex; flex-direction: column;
+  border: 1px solid #2a3d55; border-radius: 4px;
+  overflow: hidden; cursor: pointer; transition: all .15s;
+  user-select: none; flex-shrink: 0;
+}
+.zone-row:hover { border-color: #4a6a88; }
+.zone-row.active { border-color: var(--accent) !important; }
+.zone-row-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 11px; background: #1e2c3e; transition: background .15s;
+  border-bottom: 1px solid var(--border);
+}
+.zone-row:hover .zone-row-header { background: #253548; }
+.zone-row.active .zone-row-header { background: #1a3d5c; }
+.zone-row-name {
+  font-family: 'IBM Plex Mono', monospace; font-size: 14px; font-weight: 700;
+  color: var(--text); letter-spacing: 0.06em; transition: color .15s;
+}
+.zone-row:hover .zone-row-name { color: #fff; }
+.zone-row.active .zone-row-name { color: var(--accent); }
+.zone-row-count {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+  color: var(--dim); background: rgba(0,0,0,0.25);
+  padding: 1px 6px; border-radius: 10px;
+}
+.zone-row.active .zone-row-count { color: var(--accent); }
+.zone-row-states {
+  padding: 6px 11px 8px; font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px; color: #88E788; line-height: 1.7; word-break: break-word;
+  transition: color .15s; background: #16202e;
+  letter-spacing: 0.03em;
+}
+.zone-row:hover .zone-row-states { color: #b0c8e0; background: #1a2638; }
+.zone-row.active .zone-row-states { color: var(--text); background: #152c44; }
+
+/* TZ sidebar cards */
+.tz-side-card {
+  border-radius: 4px; overflow: hidden; flex-shrink: 0;
+  border-left: 3px solid; padding: 7px 10px 6px;
+  background: rgba(0,0,0,0.2); margin-bottom: 2px;
+}
+.tz-side-card.s-pt { border-color: var(--c-pt); }
+.tz-side-card.s-mt { border-color: var(--c-mt); }
+.tz-side-card.s-az { border-color: var(--c-az); border-style: dashed; }
+.tz-side-card.s-ct { border-color: var(--c-ct); }
+.tz-side-card.s-et { border-color: var(--c-et); }
+.tz-side-top { display: flex; justify-content: space-between; align-items: baseline; }
+.tz-side-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+  font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.s-pt .tz-side-label { color: var(--c-pt); }
+.s-mt .tz-side-label { color: var(--c-mt); }
+.s-az .tz-side-label { color: var(--c-az); }
+.s-ct .tz-side-label { color: var(--c-ct); }
+.s-et .tz-side-label { color: var(--c-et); }
+.tz-side-time {
+  font-family: 'IBM Plex Mono', monospace; font-size: 14px; font-weight: 700;
+}
+.s-pt .tz-side-time { color: var(--c-pt); }
+.s-mt .tz-side-time { color: var(--c-mt); }
+.s-az .tz-side-time { color: var(--c-az); }
+.s-ct .tz-side-time { color: var(--c-ct); }
+.s-et .tz-side-time { color: var(--c-et); }
+.tz-side-meta { font-family: 'IBM Plex Mono', monospace; font-size: 7.5px; color: var(--dim); margin-top: 2px; }
+.tz-side-states { font-family: 'IBM Plex Mono', monospace; font-size: 7.5px; color: var(--muted); margin-top: 3px; line-height: 1.6; word-break: break-word; }
+
+/* ═══ CONTENT COLUMN ═════════════════════════════════ */
+.content-col {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px;
+}
+
+/* ═══ BIG CLOCK BAR (Time Zone view) ════════════════ */
+.clock-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+.clock-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 16px 12px;
+  display: flex; flex-direction: column; align-items: center;
+  border-top: 3px solid;
+  position: relative; overflow: hidden;
+}
+.clock-card::before {
+  content: ''; position: absolute; inset: 0;
+  opacity: 0.06; pointer-events: none;
+}
+.clock-card.c-pt { border-top-color: var(--c-pt); }
+.clock-card.c-mt { border-top-color: var(--c-mt); }
+.clock-card.c-ct { border-top-color: var(--c-ct); }
+.clock-card.c-et { border-top-color: var(--c-et); }
+.clock-card.c-pt::before { background: var(--c-pt); }
+.clock-card.c-mt::before { background: var(--c-mt); }
+.clock-card.c-ct::before { background: var(--c-ct); }
+.clock-card.c-et::before { background: var(--c-et); }
+
+.clock-zone-name {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+  margin-bottom: 6px; padding: 2px 10px; border-radius: 20px;
+  border: 1px solid;
+}
+.c-pt .clock-zone-name { color: var(--c-pt); border-color: var(--c-pt); background: rgba(62,200,210,0.1); }
+.c-mt .clock-zone-name { color: var(--c-mt); border-color: var(--c-mt); background: rgba(232,117,106,0.1); }
+.c-ct .clock-zone-name { color: var(--c-ct); border-color: var(--c-ct); background: rgba(232,200,74,0.1); }
+.c-et .clock-zone-name { color: var(--c-et); border-color: var(--c-et); background: rgba(61,191,165,0.1); }
+
+.clock-time-wrap { display: flex; align-items: flex-start; gap: 4px; }
+.clock-hhmm {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 38px; font-weight: 700; line-height: 1;
+  letter-spacing: -0.02em;
+}
+.c-pt .clock-hhmm { color: var(--c-pt); }
+.c-mt .clock-hhmm { color: var(--c-mt); }
+.c-ct .clock-hhmm { color: var(--c-ct); }
+.c-et .clock-hhmm { color: var(--c-et); }
+
+.clock-ampm {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px; font-weight: 700; margin-top: 3px;
+  opacity: 0.85;
+}
+.c-pt .clock-ampm { color: var(--c-pt); }
+.c-mt .clock-ampm { color: var(--c-mt); }
+.c-ct .clock-ampm { color: var(--c-ct); }
+.c-et .clock-ampm { color: var(--c-et); }
+
+.clock-date {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  color: var(--dim); margin-top: 5px; letter-spacing: 0.06em;
+}
+.clock-secs {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  color: var(--muted); margin-top: 1px; letter-spacing: 0.04em;
+}
+
+/* ═══ MAP ═══════════════════════════════════════════ */
+.map-wrap {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; position: relative; overflow: hidden;
+}
+.map-wrap svg { width: 100%; height: auto; display: block; }
+
+/* ZIP map states */
+.state-zip {
+  fill: #253445; stroke: #3a5068; stroke-width: 0.5px;
+  cursor: pointer; transition: fill .12s;
+}
+.state-zip:hover { fill: #2e3f55; }
+.state-zip.selected { fill: var(--select); stroke: var(--select-stroke); stroke-width: 1px; }
+
+/* Time zone map states */
+.state-tz { stroke: rgba(20,30,45,0.6); stroke-width: 0.8px; cursor: default; transition: filter .12s; }
+.state-tz:hover { filter: brightness(1.25) saturate(1.2); cursor: crosshair; }
+.state-tz.f-pt { fill: var(--f-pt); }
+.state-tz.f-mt { fill: var(--f-mt); }
+.state-tz.f-az { fill: var(--f-az); }
+.state-tz.f-ct { fill: var(--f-ct); }
+.state-tz.f-et { fill: var(--f-et); }
+
+/* Arizona hatching pattern */
+.state-tz.f-az {
+  fill: url(#az-hatch);
+}
+
+/* Labels */
+.state-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 7px; fill: #a6bdd3;
+  pointer-events: none; text-anchor: middle; dominant-baseline: central;
+  font-weight: 600; letter-spacing: 0.04em; transition: fill .12s;
+}
+.state-label.selected { fill: var(--accent); }
+.state-label-tz {
+  font-family: 'IBM Plex Mono', monospace; font-size: 7px;
+  fill: rgba(20,30,45,0.75);
+  pointer-events: none; text-anchor: middle; dominant-baseline: central;
+  font-weight: 700; letter-spacing: 0.04em;
+}
+.nation { fill: none; stroke: rgba(20,30,45,0.8); stroke-width: 1px; }
+
+/* ═══ TOOLTIP ══════════════════════════════════════ */
+#tooltip {
+  position: fixed; background: #101824;
+  border: 1px solid var(--border);
+  padding: 9px 13px; border-radius: 4px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--text);
+  pointer-events: none; opacity: 0; transition: opacity .1s;
+  z-index: 100; white-space: nowrap; line-height: 1.8;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+}
+#tt-abbr { font-weight: 700; font-size: 14px; }
+#tt-time { font-size: 16px; font-weight: 700; }
+#tt-tz   { color: var(--dim); font-size: 10px; }
+
+/* ═══ OUTPUT PANEL ══════════════════════════════════ */
+.output-panel {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 14px 18px;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.output-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  color: var(--dim); letter-spacing: 0.1em; text-transform: uppercase; flex-shrink: 0;
+}
+#result-box {
+  flex: 1; min-width: 160px; background: #111820;
+  border: 1px solid var(--border); border-radius: 3px;
+  padding: 8px 14px; font-family: 'IBM Plex Mono', monospace;
+  font-size: 18px; font-weight: 600; color: var(--accent);
+  letter-spacing: 0.08em; min-height: 42px; display: flex; align-items: center;
+}
+#result-box.empty { color: var(--muted); font-size: 12px; font-weight: 400; }
+.btn {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 8px 16px; border-radius: 3px; border: 1px solid;
+  cursor: pointer; transition: all .15s; flex-shrink: 0; background: transparent;
+}
+#copy-btn  { border-color: var(--accent); color: var(--accent); }
+#copy-btn:hover { background: var(--accent); color: var(--bg); }
+#copy-btn.copied { background: #0d3d2a; border-color: #00cc66; color: #00cc66; }
+#clear-btn { border-color: var(--muted); color: var(--dim); }
+#clear-btn:hover { border-color: var(--accent2); color: var(--accent2); }
+.sel-count { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--dim); margin-left: auto; }
+.sel-count span { color: var(--text); }
+
+/* ═══ TZ LEGEND STRIP (below time map) ═════════════ */
+.tz-legend {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 10px 14px;
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+}
+.tz-legend-note {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+  color: var(--dim); letter-spacing: 0.07em; margin-left: auto;
+}
+.tz-leg-item {
+  display: flex; align-items: center; gap: 7px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  color: var(--text); white-space: nowrap;
+}
+.tz-leg-dot { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+
+/* ═══ LOADING ═══════════════════════════════════════ */
+#loading {
+  position: absolute; inset: 0; background: var(--surface);
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+  color: var(--dim); letter-spacing: 0.1em; z-index: 10;
+}
+.spinner {
+  width: 16px; height: 16px; border: 2px solid var(--border);
+  border-top-color: var(--accent); border-radius: 50%;
+  animation: spin .6s linear infinite; margin-right: 10px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ═══ RESPONSIVE ════════════════════════════════════ */
+@media (max-width: 860px) {
+  main { flex-direction: column; padding: 10px; }
+  .sidebar { width: 100%; position: static; max-height: none; overflow: visible; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+  .sidebar-title { width: 100%; }
+  .zone-row, .tz-side-card { width: calc(50% - 3px); }
+  .clock-bar { grid-template-columns: repeat(2, 1fr); }
+  header { padding: 12px 14px; }
+}
+@media (max-width: 480px) {
+  .clock-bar { grid-template-columns: 1fr 1fr; }
+  .clock-hhmm { font-size: 26px; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">USA Map Tool <span>// DAT Power</span></div>
+  <div class="tab-bar">
+    <button class="tab-btn active" id="tab-zip"  onclick="switchTab('zip')">&#128230; ZIP Zones</button>
+    <button class="tab-btn"        id="tab-time" onclick="switchTab('time')">&#128336; Time Zones</button>
+  </div>
+</header>
+
+<div id="tooltip">
+  <div id="tt-abbr"></div>
+  <div id="tt-name"></div>
+  <div id="tt-time"></div>
+  <div id="tt-tz"></div>
+</div>
+
+<main>
+
+  <!-- ═══ ZIP ZONE VIEW ═══════════════════════════════ -->
+  <div class="view active" id="view-zip">
+
+    <div class="sidebar">
+      <div class="sidebar-title">Zone Directory</div>
+      <div id="zip-sidebar-rows"></div>
+    </div>
+
+    <div class="content-col">
+      <div class="map-wrap">
+        <div id="loading"><div class="spinner"></div>LOADING MAP DATA&#8230;</div>
+        <svg id="map-zip" viewBox="0 0 960 600" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+      <div class="output-panel">
+        <div class="output-label">Output</div>
+        <div id="result-box" class="empty">&#8212; no states selected &#8212;</div>
+        <button class="btn" id="copy-btn">Copy</button>
+        <button class="btn" id="clear-btn">Clear</button>
+        <div class="sel-count"><span id="sel-num">0</span> selected</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══ TIME ZONE VIEW ═══════════════════════════════ -->
+  <div class="view" id="view-time">
+
+    <div class="sidebar">
+      <div class="sidebar-title">Time Zones</div>
+      <div id="tz-sidebar-cards"></div>
+    </div>
+
+    <div class="content-col">
+
+      <!-- Big clocks on top -->
+      <div class="clock-bar">
+        <div class="clock-card c-pt">
+          <div class="clock-zone-name">Pacific time</div>
+          <div class="clock-time-wrap">
+            <div class="clock-hhmm" id="clk-hhmm-pt">--:--</div>
+            <div class="clock-ampm" id="clk-ampm-pt">--</div>
+          </div>
+          <div class="clock-date"  id="clk-date-pt">--- --- --</div>
+          <div class="clock-secs" id="clk-secs-pt">:--</div>
+        </div>
+        <div class="clock-card c-mt">
+          <div class="clock-zone-name">Mountain time</div>
+          <div class="clock-time-wrap">
+            <div class="clock-hhmm" id="clk-hhmm-mt">--:--</div>
+            <div class="clock-ampm" id="clk-ampm-mt">--</div>
+          </div>
+          <div class="clock-date"  id="clk-date-mt">--- --- --</div>
+          <div class="clock-secs" id="clk-secs-mt">:--</div>
+        </div>
+        <div class="clock-card c-ct">
+          <div class="clock-zone-name">Central time</div>
+          <div class="clock-time-wrap">
+            <div class="clock-hhmm" id="clk-hhmm-ct">--:--</div>
+            <div class="clock-ampm" id="clk-ampm-ct">--</div>
+          </div>
+          <div class="clock-date"  id="clk-date-ct">--- --- --</div>
+          <div class="clock-secs" id="clk-secs-ct">:--</div>
+        </div>
+        <div class="clock-card c-et">
+          <div class="clock-zone-name">Eastern time</div>
+          <div class="clock-time-wrap">
+            <div class="clock-hhmm" id="clk-hhmm-et">--:--</div>
+            <div class="clock-ampm" id="clk-ampm-et">--</div>
+          </div>
+          <div class="clock-date"  id="clk-date-et">--- --- --</div>
+          <div class="clock-secs" id="clk-secs-et">:--</div>
+        </div>
+      </div>
+
+      <!-- Map -->
+      <div class="map-wrap">
+        <svg id="map-tz" viewBox="0 0 960 600" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <!-- Arizona hatching: same fill color with diagonal lines -->
+            <pattern id="az-hatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+              <rect width="6" height="6" fill="var(--f-az)"/>
+              <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(20,30,45,0.35)" stroke-width="2.5"/>
+            </pattern>
+          </defs>
+        </svg>
+      </div>
+
+      <!-- Legend strip -->
+      <div class="tz-legend">
+        <div class="tz-leg-item"><div class="tz-leg-dot" style="background:var(--f-pt)"></div>Pacific (PT) — CA, NV, OR, WA</div>
+        <div class="tz-leg-item"><div class="tz-leg-dot" style="background:var(--f-mt)"></div>Mountain (MT) — CO, ID, MT, NM, UT, WY</div>
+        <div class="tz-leg-item"><div class="tz-leg-dot" style="background:var(--f-ct)"></div>Central (CT) — AL, AR, IA, IL, KS, LA, MN, MO, MS, ND, NE, OK, SD, TN, TX, WI</div>
+        <div class="tz-leg-item"><div class="tz-leg-dot" style="background:var(--f-et)"></div>Eastern (ET) — CT, DE, FL, GA, IN, KY, ME, MD, MA, MI, NH, NJ, NY, NC, OH, PA, RI, SC, VT, VA, WV</div>
+        <div class="tz-leg-item">
+          <div class="tz-leg-dot" style="background: repeating-linear-gradient(45deg, var(--f-az), var(--f-az) 2px, rgba(20,30,45,0.4) 2px, rgba(20,30,45,0.4) 5px)"></div>
+          AZ &#8212; no DST (UTC&#8722;7 year-round)
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</main>
+
+<script>
+/* ════════════════════════════════════════
+   ZIP ZONE DATA  (DAT Power Z0–Z9)
+   ════════════════════════════════════════ */
+const ZONES = {
+  Z0: ['CT','ME','MA','NH','NJ','RI','VT'],
+  Z1: ['DE','NY','PA'],
+  Z2: ['MD','NC','SC','VA','WV'],
+  Z3: ['AL','FL','GA','MS','TN'],
+  Z4: ['IN','KY','MI','OH'],
+  Z5: ['IA','MN','MT','ND','SD','WI'],
+  Z6: ['IL','KS','MO','NE'],
+  Z7: ['AR','LA','OK','TX'],
+  Z8: ['AZ','CO','ID','NV','NM','UT','WY'],
+  Z9: ['CA','OR','WA'],
+};
+const STATE_ZONE = {};
+Object.entries(ZONES).forEach(([z,ss]) => ss.forEach(s => STATE_ZONE[s] = z));
+
+/* ════════════════════════════════════════
+   TIME ZONE DATA
+   IANA IDs used with Intl.DateTimeFormat — DST handled automatically.
+
+   State assignments (primary/dominant zone per state):
+     Eastern  — IN (since 2006), KY (majority ET), MI, FL (panhandle CT but ET dominant), etc.
+     Central  — TN (Nashville/Memphis CT dominant), SD (east dominant CT), ND (CT dominant)
+     Mountain — CO, ID (south dominant MT), MT, NM, UT, WY
+     Arizona  — AZ alone: UTC-7, no daylight saving EVER
+     Pacific  — CA, NV, OR, WA
+   ════════════════════════════════════════ */
+const TZ_DEFS = [
+  {
+    id:'pt', iana:'America/Los_Angeles',
+    label:'Pacific', abbr:'PT', cls:'s-pt', fill:'f-pt',
+    note:'UTC−8 (PST) / UTC−7 (PDT)',
+    states:['CA','NV','OR','WA'],
+  },
+  {
+    id:'mt', iana:'America/Denver',
+    label:'Mountain', abbr:'MT', cls:'s-mt', fill:'f-mt',
+    note:'UTC−7 (MST) / UTC−6 (MDT)',
+    states:['CO','ID','MT','NM','UT','WY'],
+  },
+  {
+    id:'az', iana:'America/Phoenix',
+    label:'Arizona', abbr:'AZ*', cls:'s-az', fill:'f-az',
+    note:'UTC−7 always · NO daylight saving',
+    states:['AZ'],
+  },
+  {
+    id:'ct', iana:'America/Chicago',
+    label:'Central', abbr:'CT', cls:'s-ct', fill:'f-ct',
+    note:'UTC−6 (CST) / UTC−5 (CDT)',
+    states:['AL','AR','IA','IL','KS','LA','MN','MO','MS','ND','NE','OK','SD','TN','TX','WI'],
+  },
+  {
+    id:'et', iana:'America/New_York',
+    label:'Eastern', abbr:'ET', cls:'s-et', fill:'f-et',
+    note:'UTC−5 (EST) / UTC−4 (EDT)',
+    states:['CT','DE','FL','GA','IN','KY','ME','MD','MA','MI','NH','NJ','NY','NC','OH','PA','RI','SC','VT','VA','WV'],
+  },
+];
+const STATE_TZ = {};
+TZ_DEFS.forEach(tz => tz.states.forEach(s => STATE_TZ[s] = tz));
+
+/* Clock color map (for tooltip) */
+const TZ_COLOR = { pt:'#3ec8d2', mt:'#e8756a', az:'#e8756a', ct:'#e8c84a', et:'#3dbfa5' };
+
+/* ════════════════════════════════════════
+   FIPS → ABBR + NAMES
+   ════════════════════════════════════════ */
+const FIPS = {
+  '01':'AL','04':'AZ','05':'AR','06':'CA','08':'CO','09':'CT',
+  '10':'DE','11':'DC','12':'FL','13':'GA','16':'ID','17':'IL',
+  '18':'IN','19':'IA','20':'KS','21':'KY','22':'LA','23':'ME',
+  '24':'MD','25':'MA','26':'MI','27':'MN','28':'MS','29':'MO',
+  '30':'MT','31':'NE','32':'NV','33':'NH','34':'NJ','35':'NM',
+  '36':'NY','37':'NC','38':'ND','39':'OH','40':'OK','41':'OR',
+  '42':'PA','44':'RI','45':'SC','46':'SD','47':'TN','48':'TX',
+  '49':'UT','50':'VT','51':'VA','53':'WA','54':'WV','55':'WI','56':'WY',
+};
+const NAMES = {
+  AL:'Alabama',AZ:'Arizona',AR:'Arkansas',CA:'California',CO:'Colorado',
+  CT:'Connecticut',DE:'Delaware',FL:'Florida',GA:'Georgia',ID:'Idaho',
+  IL:'Illinois',IN:'Indiana',IA:'Iowa',KS:'Kansas',KY:'Kentucky',
+  LA:'Louisiana',ME:'Maine',MD:'Maryland',MA:'Massachusetts',MI:'Michigan',
+  MN:'Minnesota',MS:'Mississippi',MO:'Missouri',MT:'Montana',NE:'Nebraska',
+  NV:'Nevada',NH:'New Hampshire',NJ:'New Jersey',NM:'New Mexico',NY:'New York',
+  NC:'North Carolina',ND:'North Dakota',OH:'Ohio',OK:'Oklahoma',OR:'Oregon',
+  PA:'Pennsylvania',RI:'Rhode Island',SC:'South Carolina',SD:'South Dakota',
+  TN:'Tennessee',TX:'Texas',UT:'Utah',VT:'Vermont',VA:'Virginia',
+  WA:'Washington',WV:'West Virginia',WI:'Wisconsin',WY:'Wyoming',DC:'D.C.',
+};
+
+/* ════════════════════════════════════════
+   TAB SWITCHING
+   ════════════════════════════════════════ */
+function switchTab(tab) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('view-' + tab).classList.add('active');
+  document.getElementById('tab-'  + tab).classList.add('active');
+  document.getElementById('tooltip').style.opacity = '0';
+}
+
+/* ════════════════════════════════════════
+   TOOLTIP
+   ════════════════════════════════════════ */
+const tooltip = document.getElementById('tooltip');
+function showTip(e, c) {
+  document.getElementById('tt-abbr').textContent = c.abbr  || '';
+  document.getElementById('tt-name').textContent = c.name  || '';
+  document.getElementById('tt-time').textContent = c.time  || '';
+  document.getElementById('tt-time').style.color = c.color || '';
+  document.getElementById('tt-tz').textContent   = c.tz    || '';
+  tooltip.style.borderColor = c.color || '';
+  tooltip.style.opacity = '1';
+  tooltip.style.left = (e.clientX + 14) + 'px';
+  tooltip.style.top  = (e.clientY - 52) + 'px';
+}
+function hideTip() { tooltip.style.opacity = '0'; }
+
+/* ════════════════════════════════════════
+   ZIP ZONE SELECTION
+   ════════════════════════════════════════ */
+const selected = new Set();
+function updateOutput() {
+  const arr = [...selected].sort();
+  const box = document.getElementById('result-box');
+  document.getElementById('sel-num').textContent = arr.length;
+  if (!arr.length) { box.textContent = '— no states selected —'; box.classList.add('empty'); return; }
+  box.classList.remove('empty');
+  const covered = new Set(), hits = [];
+  for (const [z, ms] of Object.entries(ZONES)) {
+    if (ms.every(s => selected.has(s))) { hits.push(z); ms.forEach(s => covered.add(s)); }
+  }
+  box.textContent = [...hits.sort(), ...arr.filter(s => !covered.has(s))].join(',');
+}
+function buildZipSidebar() {
+  const wrap = document.getElementById('zip-sidebar-rows');
+  Object.entries(ZONES).forEach(([z, ss]) => {
+    const row = document.createElement('div');
+    row.className = 'zone-row'; row.id = 'zr-' + z;
+    row.innerHTML =
+      '<div class="zone-row-header"><span class="zone-row-name">' + z + '</span><span class="zone-row-count">' + ss.length + ' states</span></div>' +
+      '<div class="zone-row-states">' + ss.join(' · ') + '</div>';
+    row.addEventListener('click', () => toggleZone(z));
+    wrap.appendChild(row);
+  });
+}
+function toggleZone(z) {
+  const ms = ZONES[z], allSel = ms.every(s => selected.has(s));
+  ms.forEach(s => {
+    const el  = document.querySelector('#map-zip [data-abbr="' + s + '"]');
+    const lbl = document.querySelector('#map-zip .state-label[data-abbr="' + s + '"]');
+    if (allSel) { selected.delete(s); el?.classList.remove('selected'); lbl?.classList.remove('selected'); }
+    else        { selected.add(s);    el?.classList.add('selected');    lbl?.classList.add('selected');    }
+  });
+  syncZoneRow(z); updateOutput();
+}
+function syncZoneRow(z) {
+  const row = document.getElementById('zr-' + z);
+  if (row) row.classList.toggle('active', ZONES[z].every(s => selected.has(s)));
+}
+
+/* ════════════════════════════════════════
+   TZ SIDEBAR
+   ════════════════════════════════════════ */
+function buildTzSidebar() {
+  const wrap = document.getElementById('tz-sidebar-cards');
+  TZ_DEFS.forEach(tz => {
+    const card = document.createElement('div');
+    card.className = 'tz-side-card ' + tz.cls;
+    card.innerHTML =
+      '<div class="tz-side-top"><span class="tz-side-label">' + tz.label + '</span><span class="tz-side-time" id="tzs-' + tz.id + '">--:-- --</span></div>' +
+      '<div class="tz-side-meta">' + tz.abbr + ' · ' + tz.note + '</div>' +
+      '<div class="tz-side-states">' + tz.states.join(' · ') + '</div>';
+    wrap.appendChild(card);
+  });
+}
+
+/* ════════════════════════════════════════
+   LIVE CLOCKS
+   Uses Intl.DateTimeFormat with IANA IDs.
+   Browser handles DST 100% automatically.
+   ════════════════════════════════════════ */
+const DAYS  = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+const MONTHS= ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+
+/* Formatters for 12-hr display */
+const FMT12 = {};
+const FMT24 = {};
+const FMTDATE = {};
+TZ_DEFS.forEach(tz => {
+  FMT12[tz.id] = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz.iana, hour: 'numeric', minute: '2-digit', hour12: true,
+  });
+  FMT24[tz.id] = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz.iana, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  });
+  FMTDATE[tz.id] = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz.iana, weekday: 'short', month: 'short', day: 'numeric',
+  });
+});
+
+function getTimeParts(ianaId) {
+  /* Returns {hhmm, ampm, secs, dateStr} for display */
+  const now = new Date();
+  const raw = FMT24[ianaId].format(now);            // "14:05:33"
+  const parts = raw.split(':');
+  let h = parseInt(parts[0]), m = parts[1], s = parts[2];
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12; if (h === 0) h = 12;
+  const hhmm = h + ':' + m;
+  /* Date */
+  const d = FMTDATE[ianaId].format(now);             // "Wed, Apr 22"
+  const dp = d.split(', ');
+  const day = dp[0].toUpperCase();
+  const md  = dp[1].split(' ');
+  const dateStr = day + ' ' + md[0].toUpperCase() + ' ' + md[1];
+  return { hhmm, ampm, secs: ':' + s, dateStr };
+}
+
+function getNowStr(tzId) {
+  /* For sidebar and tooltip: "2:15 PM" */
+  return FMT12[tzId].format(new Date());
+}
+
+function tickClocks() {
+  /* Only PT/MT/CT/ET go on the big clock — AZ shares MT time display */
+  ['pt','mt','ct','et'].forEach(id => {
+    const p = getTimeParts(id);
+    const hEl = document.getElementById('clk-hhmm-' + id);
+    const aEl = document.getElementById('clk-ampm-' + id);
+    const dEl = document.getElementById('clk-date-' + id);
+    const sEl = document.getElementById('clk-secs-' + id);
+    if (hEl) hEl.textContent = p.hhmm;
+    if (aEl) aEl.textContent = p.ampm;
+    if (dEl) dEl.textContent = p.dateStr;
+    if (sEl) sEl.textContent = p.secs;
+  });
+  /* Sidebar: all 5 including AZ */
+  TZ_DEFS.forEach(tz => {
+    const el = document.getElementById('tzs-' + tz.id);
+    if (el) el.textContent = getNowStr(tz.id);
+  });
+}
+
+/* ════════════════════════════════════════
+   MAP RENDERING  (D3 + TopoJSON)
+   ════════════════════════════════════════ */
+async function loadMaps() {
+  let us;
+  try {
+    us = await d3.json('https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json');
+  } catch(e) {
+    document.getElementById('loading').innerHTML = '<span style="color:#ff6b35">&#9888; Failed to load map data.</span>';
+    return;
+  }
+
+  const W = 960, H = 600;
+  const proj = d3.geoAlbersUsa().scale(1280).translate([W/2, H/2]);
+  const path = d3.geoPath().projection(proj);
+
+  /* Filter AK + HI */
+  const geo = topojson.feature(us, us.objects.states);
+  geo.features = geo.features.filter(d => {
+    const f = String(d.id).padStart(2,'0');
+    return f !== '02' && f !== '15';
+  });
+  const mesh = topojson.mesh(us, us.objects.states, (a,b) => {
+    const fa = String(a.id).padStart(2,'0'), fb = String(b.id).padStart(2,'0');
+    return fa !== '02' && fa !== '15' && fb !== '02' && fb !== '15';
+  });
+
+  /* ── ZIP MAP ───────────────────────────────── */
+  const svgZ = d3.select('#map-zip');
+  svgZ.selectAll('.state-zip')
+    .data(geo.features).join('path')
+    .attr('class', 'state-zip')
+    .attr('d', path)
+    .attr('data-abbr', d => FIPS[String(d.id).padStart(2,'0')] || '')
+    .on('click', function(event, d) {
+      const abbr = FIPS[String(d.id).padStart(2,'0')];
+      if (!abbr || abbr === 'DC') return;
+      const isSel = selected.has(abbr);
+      isSel ? selected.delete(abbr) : selected.add(abbr);
+      d3.select(this).classed('selected', !isSel);
+      svgZ.select('.state-label[data-abbr="' + abbr + '"]').classed('selected', !isSel);
+      const z = STATE_ZONE[abbr]; if (z) syncZoneRow(z);
+      updateOutput();
+    })
+    .on('mousemove', function(event, d) {
+      const abbr = FIPS[String(d.id).padStart(2,'0')] || '';
+      if (!abbr || abbr === 'DC') return;
+      showTip(event, { abbr, name: NAMES[abbr]||'', tz: 'ZIP Zone ' + (STATE_ZONE[abbr]||'–'), color: 'var(--accent)' });
+    })
+    .on('mouseleave', hideTip);
+
+  /* Manual label offsets for states where centroid falls outside the main body */
+  const LABEL_OFFSET = {
+    'FL': { dx: 20, dy: 8 },
+    'MI': { dx: 15, dy: 20 },
+    'LA': { dx: -8, dy:  0 },
+    'NJ': { dx:  4, dy: 0 },
+    'MD': { dx:  -5, dy: -6 },
+  };
+
+  svgZ.selectAll('.state-label')
+    .data(geo.features).join('text')
+    .attr('class', 'state-label')
+    .attr('data-abbr', d => FIPS[String(d.id).padStart(2,'0')] || '')
+    .attr('x', d => {
+      const abbr = FIPS[String(d.id).padStart(2,'0')] || '';
+      const c = path.centroid(d);
+      const off = LABEL_OFFSET[abbr];
+      return isNaN(c[0]) ? -999 : c[0] + (off ? off.dx : 0);
+    })
+    .attr('y', d => {
+      const abbr = FIPS[String(d.id).padStart(2,'0')] || '';
+      const c = path.centroid(d);
+      const off = LABEL_OFFSET[abbr];
+      return isNaN(c[1]) ? -999 : c[1] + (off ? off.dy : 0);
+    })
+    .text(d => FIPS[String(d.id).padStart(2,'0')] || '')
+    .style('display', d => path.area(d) < 120 ? 'none' : null);
+
+  svgZ.append('path').datum(mesh).attr('class','nation').attr('d', path);
+  document.getElementById('loading').style.display = 'none';
+
+  /* ── TIME ZONE MAP ─────────────────────────── */
+  const svgT = d3.select('#map-tz');
+
+  /* State fills */
+  svgT.selectAll('.state-tz')
+    .data(geo.features).join('path')
+    .attr('class', d => {
+      const abbr = FIPS[String(d.id).padStart(2,'0')] || '';
+      const tz = STATE_TZ[abbr];
+      return 'state-tz' + (tz ? ' ' + tz.fill : '');
+    })
+    .attr('d', path)
+    .attr('data-abbr', d => FIPS[String(d.id).padStart(2,'0')] || '')
+    .on('mousemove', function(event, d) {
+      const abbr = FIPS[String(d.id).padStart(2,'0')] || '';
+      if (!abbr || abbr === 'DC') return;
+      const tz = STATE_TZ[abbr];
+      showTip(event, {
+        abbr, name: NAMES[abbr] || '',
+        time:  tz ? getNowStr(tz.id) : '',
+        color: tz ? TZ_COLOR[tz.id] : '',
+        tz:    tz ? tz.label + ' Time · ' + tz.note : '',
+      });
+    })
+    .on('mouseleave', hideTip);
+
+  /* State abbreviation labels */
+  svgT.selectAll('.state-label-tz')
+    .data(geo.features).join('text')
+    .attr('class', 'state-label-tz')
+    .attr('x', d => {
+      const abbr = FIPS[String(d.id).padStart(2,'0')] || '';
+      const c = path.centroid(d);
+      const off = LABEL_OFFSET[abbr];
+      return isNaN(c[0]) ? -999 : c[0] + (off ? off.dx : 0);
+    })
+    .attr('y', d => {
+      const abbr = FIPS[String(d.id).padStart(2,'0')] || '';
+      const c = path.centroid(d);
+      const off = LABEL_OFFSET[abbr];
+      return isNaN(c[1]) ? -999 : c[1] + (off ? off.dy : 0);
+    })
+    .text(d => FIPS[String(d.id).padStart(2,'0')] || '')
+    .style('display', d => path.area(d) < 120 ? 'none' : null);
+
+  svgT.append('path').datum(mesh).attr('class','nation').attr('d', path);
+}
+
+/* ════════════════════════════════════════
+   BUTTONS
+   ════════════════════════════════════════ */
+document.getElementById('copy-btn').addEventListener('click', function() {
+  const t = document.getElementById('result-box').textContent;
+  if (!t || t.startsWith('—')) return;
+  navigator.clipboard.writeText(t).then(() => {
+    this.textContent = 'Copied!'; this.classList.add('copied');
+    setTimeout(() => { this.textContent = 'Copy'; this.classList.remove('copied'); }, 1600);
+  });
+});
+document.getElementById('clear-btn').addEventListener('click', () => {
+  selected.clear();
+  document.querySelectorAll('.state-zip.selected').forEach(e => e.classList.remove('selected'));
+  document.querySelectorAll('.state-label.selected').forEach(e => e.classList.remove('selected'));
+  Object.keys(ZONES).forEach(z => syncZoneRow(z));
+  updateOutput();
+});
+
+/* ════════════════════════════════════════
+   INIT
+   ════════════════════════════════════════ */
+buildZipSidebar();
+buildTzSidebar();
+loadMaps();
+tickClocks();
+setInterval(tickClocks, 1000);
+</script>
+</body>
+</html>
