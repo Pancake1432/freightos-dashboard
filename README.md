@@ -18,20 +18,6 @@ A professional trucking dashboard with interactive maps, HOS-aware ETA predictio
 
 ---
 
-## Quick Start
-
-```bash
-# 1. Install
-npm install
-
-# 2. Run locally — that's it, no .env needed
-npm run dev
-```
-
-Open [http://localhost:5173](http://localhost:5173)
-
----
-
 ## Features
 
 ### Map Tool
@@ -53,49 +39,6 @@ Open [http://localhost:5173](http://localhost:5173)
 ### Profit Calculator
 - True Rate Per Mile gauge with color-coded zones
 - Green > $3.00, Yellow $2.50–$3.00, Red < $2.50
-
----
-
-## Deploy to GitHub Pages
-
-### 1. Update `vite.config.ts`
-```ts
-base: process.env.NODE_ENV === 'production' ? '/your-repo-name/' : '/',
-```
-
-### 2. Push to GitHub — no secrets needed
-```bash
-git add .
-git commit -m "Initial deploy"
-git push origin main
-npm run deploy
-```
-
-Your app is live at `https://your-username.github.io/your-repo-name/`
-
-### Optional: GitHub Actions CI
-Create `.github/workflows/deploy.yml`:
-```yaml
-name: Deploy
-on:
-  push:
-    branches: [main]
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm ci
-      - run: npm run build
-      - uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./dist
-```
-No secrets to configure — it just works.
 
 ---
 
